@@ -1,0 +1,15 @@
+{
+  "name": "reader-epub-magazine",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node src/build-epub.js",
+    "clean": "rm -rf dist",
+    "package": "npm run build && cd dist/epub-build && zip -X0 ../magazine.epub mimetype && zip -X9 -r ../magazine.epub META-INF OEBPS && cd - >/dev/null"
+  },
+  "dependencies": {
+    "gray-matter": "^4.0.3",
+    "markdown-it": "^14.1.0"
+  }
+}
