@@ -94,11 +94,18 @@ function buildSimplePage(name, mdPath) {
   const file = `${slugify(name)}.xhtml`
   const html = xhtmlWrap(name, `<h1 class=\"article-title\">${esc(name)}</h1>${mdToHtml(md)}`)
   write(path.join(textDir, file), html)
-  return file
+  return { title: name, file }
 }
 
-function buildMagazineToc(columns) {
+function buildMagazineToc(columns, pages) {
   let body = `<div class="toc"><h1>目录</h1>`
+  if (pages && pages.length > 0) {
+    body += `<div class="column"><div class="column-title">前言</div><ul>`
+    for (const p of pages) {
+      body += `<li><a href="${p.file}">${esc(p.title)}</a></li>`
+    }
+    body += `</ul></div>`
+  }
   for (const c of columns) {
     body += `<div class="column"><div class="column-title">${esc(c.name)}</div><ul>`
     for (const a of c.articles) {
@@ -113,8 +120,13 @@ function buildMagazineToc(columns) {
 
 /* no column pages */
 
-function buildNav(metadata, columns) {
-  let nav = `<?xml version="1.0" encoding="utf-8"?>\n<!DOCTYPE html>\n<html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops" xml:lang="zh-CN">\n<head>\n<meta charset="utf-8"/>\n<title>${esc(metadata.title)}</title>\n</head>\n<body>\n<nav epub:type="toc" id="toc">\n<h1>目录</h1>\n<ol>`
+function buildNav(metadata, columns, pages) {
+  let nav = `<?xml version="1.0" encoding="utf-8"?>\n<!DOCTYPE html>\n<html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops" xml:lang="zh-CN" lang="zh-CN">\n<head>\n<meta charset="utf-8"/>\n<title>${esc(metadata.title)}</title>\n</head>\n<body>\n<nav epub:type="toc" id="toc">\n<h1>目录</h1>\n<ol>`
+  if (pages && pages.length > 0) {
+    for (const p of pages) {
+      nav += `<li><a href="text/${p.file}">${esc(p.title)}</a></li>`
+    }
+  }
   for (const c of columns) {
     const first = c.articles[0]
     const topHref = first ? `text/${first.id}.xhtml` : ''
@@ -139,7 +151,7 @@ function buildOpf(metadata, columns, pages) {
   manifestItems.push(`<item id="cover" href="cover.xhtml" media-type="application/xhtml+xml"/>`)
   manifestItems.push(`<item id="magazine-toc" href="text/magazine-toc.xhtml" media-type="application/xhtml+xml"/>`)
   for (const p of pages) {
-    manifestItems.push(`<item id="${slugify(p.replace(/\.xhtml$/, ''))}" href="text/${p}" media-type="application/xhtml+xml"/>`)
+    manifestItems.push(`<item id="${slugify(p.file.replace(/\.xhtml$/, ''))}" href="text/${p.file}" media-type="application/xhtml+xml"/>`)
   }
   const imgAdded = new Set()
   for (const c of columns) {
@@ -159,7 +171,7 @@ function buildOpf(metadata, columns, pages) {
   let spineItems = []
   spineItems.push(`<itemref idref="cover"/>`)
   spineItems.push(`<itemref idref="magazine-toc"/>`)
-  for (const p of pages) spineItems.push(`<itemref idref="${slugify(p.replace(/\.xhtml$/, ''))}"/>`)
+  for (const p of pages) spineItems.push(`<itemref idref="${slugify(p.file.replace(/\.xhtml$/, ''))}"/>`)
   for (const c of columns) {
     for (const a of c.articles) spineItems.push(`<itemref idref="${a.id}"/>`)
   }
@@ -226,8 +238,8 @@ function main() {
   for (const c of columns) {
     for (const a of c.articles) writeArticleXhtml(a)
   }
-  buildMagazineToc(columns)
-  buildNav(metadata, columns)
+  buildMagazineToc(columns, [forewordPage])
+  buildNav(metadata, columns, [forewordPage])
   copyImages(metadata, columns)
   buildOpf(metadata, columns, [forewordPage])
 
