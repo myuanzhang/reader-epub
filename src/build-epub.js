@@ -33,11 +33,11 @@ function esc(s) {
 }
 
 function xhtmlWrap(title, body, cssHref = 'styles/style.css') {
-  return `<?xml version="1.0" encoding="utf-8"?>\n<!DOCTYPE html>\n<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="zh-CN">\n<head>\n<meta charset="utf-8"/>\n<title>${esc(title)}</title>\n<link rel="stylesheet" type="text/css" href="../${cssHref}"/>\n</head>\n<body>\n${body}\n</body>\n</html>`
+  return `<?xml version="1.0" encoding="utf-8"?>\n<!DOCTYPE html>\n<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="zh-CN" lang="zh-CN">\n<head>\n<meta charset="utf-8"/>\n<title>${esc(title)}</title>\n<link rel="stylesheet" type="text/css" href="../${cssHref}"/>\n</head>\n<body>\n${body}\n</body>\n</html>`
 }
 
 function buildCss() {
-  const css = `body{font-family: system-ui, -apple-system, 'SF Pro Text','PingFang SC','Microsoft YaHei',sans-serif;line-height:1.8;margin:1rem 1.25rem}h1,h2,h3{margin:0 0 .75rem 0}p{margin:.75rem 0;text-indent:0 !important}img{max-width:100%;height:auto}figure{margin:1rem 0;text-align:center}figcaption{color:#666;font-size:.9rem;margin-top:.5rem}.article-title{font-size:1.8rem;font-weight:600;text-align:left;margin-bottom:.5rem;border-left:.25rem solid #0a8f39;padding-left:.5rem}.article-author{font-size:1rem;color:#555;text-align:right;margin:.25rem 0 1rem 0}.article-image{display:block;margin:0 auto 1rem auto}.toc h1{font-size:1.4rem;margin-bottom:.5rem}.toc details{border:1px solid #eee;border-radius:.5rem;margin:.5rem 0;padding:.5rem}.toc summary{font-weight:600;cursor:pointer;list-style:none}.toc ul{list-style:none;padding-left:0;margin:.5rem 0}.toc li{margin:.25rem 0}.toc a{color:#0a6dce;text-decoration:none}.toc a:visited{color:#5d5d8a}`
+  const css = `body{font-family: system-ui, -apple-system, 'SF Pro Text','PingFang SC','Microsoft YaHei',sans-serif;line-height:1.8;margin:1rem 1.25rem;word-wrap:break-word}h1,h2,h3{margin:0 0 .75rem 0;page-break-after:avoid}p{margin:.75rem 0;text-indent:0 !important}img{max-width:100%;height:auto;display:block;margin:1rem auto}figure{margin:1rem 0;text-align:center;page-break-inside:avoid}figcaption{color:#666;font-size:.9rem;margin-top:.5rem}.article-title{font-size:1.8rem;font-weight:600;text-align:left;margin-bottom:.5rem;border-left:.25rem solid #0a8f39;padding-left:.5rem}.article-author{font-size:1rem;color:#555;text-align:right;margin:.25rem 0 1rem 0}.article-image{display:block;margin:0 auto 1rem auto}.toc h1{font-size:1.4rem;margin-bottom:.5rem}.toc .column{border-bottom:1px solid #eee;margin:1rem 0;padding-bottom:.5rem}.toc .column-title{font-size:1.1rem;font-weight:600;margin-bottom:.5rem;color:#333}.toc ul{list-style:none;padding-left:1rem;margin:.5rem 0}.toc li{margin:.25rem 0}.toc a{color:#0a6dce;text-decoration:none}.toc a:visited{color:#5d5d8a}`
   write(path.join(cssDir, 'style.css'), css)
 }
 
@@ -46,13 +46,13 @@ function slugify(s) {
   const needAugment = !/[a-z0-9]/.test(base) || /-$/.test(base) || base.length < 4
   if (!needAugment) return base
   const source = base.startsWith('column-') ? s.replace(/^column-/, '') : s
-  const hex = Buffer.from(source, 'utf8').toString('hex').slice(0, 8)
+  const hex = Buffer.from(source, 'utf8').toString('hex').slice(0, 16)
   if (base) return `${base}${hex}`
   return `p-${hex}`
 }
 
 function mdToHtml(md) {
-  const mdParser = new MarkdownIt({ html: true, breaks: true, linkify: true })
+  const mdParser = new MarkdownIt({ html: true, xhtmlOut: true, breaks: true, linkify: true })
   return mdParser.render(md)
 }
 
@@ -68,7 +68,7 @@ function collectColumns() {
       const raw = readMD(path.join(dir, f))
       const { data, content } = matter(raw)
       const id = slugify(`${name}-${data.title || f}`)
-      articles.push({ id, column: name, title: data.title || f.replace(/\.md$/,''), author: data.author || '', image: data.image || '', md: content, srcDir: dir })
+      articles.push({ id, column: name, title: data.title || f.replace(/\.md$/, ''), author: data.author || '', image: data.image || '', md: content, srcDir: dir })
     }
     columns.push({ name, articles })
   }
@@ -100,11 +100,11 @@ function buildSimplePage(name, mdPath) {
 function buildMagazineToc(columns) {
   let body = `<div class="toc"><h1>目录</h1>`
   for (const c of columns) {
-    body += `<details><summary>${esc(c.name)}</summary><ul>`
+    body += `<div class="column"><div class="column-title">${esc(c.name)}</div><ul>`
     for (const a of c.articles) {
       body += `<li><a href="${a.id}.xhtml">${esc(a.title)}</a></li>`
     }
-    body += `</ul></details>`
+    body += `</ul></div>`
   }
   body += `</div>`
   const html = xhtmlWrap('目录', body)
@@ -139,7 +139,7 @@ function buildOpf(metadata, columns, pages) {
   manifestItems.push(`<item id="cover" href="cover.xhtml" media-type="application/xhtml+xml"/>`)
   manifestItems.push(`<item id="magazine-toc" href="text/magazine-toc.xhtml" media-type="application/xhtml+xml"/>`)
   for (const p of pages) {
-    manifestItems.push(`<item id="${slugify(p.replace(/\.xhtml$/,''))}" href="text/${p}" media-type="application/xhtml+xml"/>`)
+    manifestItems.push(`<item id="${slugify(p.replace(/\.xhtml$/, ''))}" href="text/${p}" media-type="application/xhtml+xml"/>`)
   }
   const imgAdded = new Set()
   for (const c of columns) {
@@ -159,7 +159,7 @@ function buildOpf(metadata, columns, pages) {
   let spineItems = []
   spineItems.push(`<itemref idref="cover"/>`)
   spineItems.push(`<itemref idref="magazine-toc"/>`)
-  for (const p of pages) spineItems.push(`<itemref idref="${slugify(p.replace(/\.xhtml$/,''))}"/>`)
+  for (const p of pages) spineItems.push(`<itemref idref="${slugify(p.replace(/\.xhtml$/, ''))}"/>`)
   for (const c of columns) {
     for (const a of c.articles) spineItems.push(`<itemref idref="${a.id}"/>`)
   }
@@ -220,7 +220,6 @@ function main() {
   buildCss()
   buildCover(metadata)
 
-  const copyrightPage = buildSimplePage('版权信息', path.join(contentDir, 'copyright.md'))
   const forewordPage = buildSimplePage('卷首语', path.join(contentDir, 'foreword.md'))
 
   const columns = collectColumns()
@@ -230,7 +229,7 @@ function main() {
   buildMagazineToc(columns)
   buildNav(metadata, columns)
   copyImages(metadata, columns)
-  buildOpf(metadata, columns, [copyrightPage, forewordPage])
+  buildOpf(metadata, columns, [forewordPage])
 
   write(path.join(workDir, 'mimetype'), 'application/epub+zip')
   buildContainer()
