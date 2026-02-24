@@ -43,11 +43,13 @@ function buildCss() {
 
 function slugify(s) {
   let base = s.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9\-]/g, '')
-  const needAugment = !/[a-z0-9]/.test(base) || /-$/.test(base) || base.length < 4
+  // Ensure ID starts with a letter and has no redundant hyphens
+  base = base.replace(/^-+/, '').replace(/-+$/, '')
+  const needAugment = !/^[a-z]/.test(base) || base.length < 4
   if (!needAugment) return base
   const source = base.startsWith('column-') ? s.replace(/^column-/, '') : s
   const hex = Buffer.from(source, 'utf8').toString('hex').slice(0, 16)
-  if (base) return `${base}${hex}`
+  if (base && /^[a-z]/.test(base)) return `${base}${hex}`
   return `p-${hex}`
 }
 
@@ -62,13 +64,20 @@ function collectColumns() {
   const columns = []
   for (const name of names) {
     const dir = path.join(columnsDir, name)
-    const files = fs.readdirSync(dir).filter(f => f.endsWith('.md')).sort()
+    const files = fs.readdirSync(dir).filter(f => f.endsWith('.md')).sort((a, b) => {
+      const isIntro = (f) => f.toLowerCase().startsWith('intro') || f.toLowerCase().startsWith('overview') || /^\d{2}-/.test(f)
+      const ai = isIntro(a), bi = isIntro(b)
+      if (ai && !bi) return -1
+      if (!ai && bi) return 1
+      return a.localeCompare(b)
+    })
     const articles = []
     for (const f of files) {
       const raw = readMD(path.join(dir, f))
       const { data, content } = matter(raw)
       const id = slugify(`${name}-${data.title || f}`)
-      articles.push({ id, column: name, title: data.title || f.replace(/\.md$/, ''), author: data.author || '', image: data.image || '', md: content, srcDir: dir })
+      const isIntro = (f) => f.toLowerCase().startsWith('intro') || f.toLowerCase().startsWith('overview') || /^\d{2}-/.test(f)
+      articles.push({ id, column: name, title: data.title || f.replace(/\.md$/, ''), author: data.author || '', image: data.image || '', md: content, srcDir: dir, isIntro: isIntro(f) })
     }
     columns.push({ name, articles })
   }
@@ -122,20 +131,29 @@ function buildMagazineToc(columns, pages) {
 
 function buildNav(metadata, columns, pages) {
   let nav = `<?xml version="1.0" encoding="utf-8"?>\n<!DOCTYPE html>\n<html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops" xml:lang="zh-CN" lang="zh-CN">\n<head>\n<meta charset="utf-8"/>\n<title>${esc(metadata.title)}</title>\n</head>\n<body>\n<nav epub:type="toc" id="toc">\n<h1>目录</h1>\n<ol>`
+  // Removed "扉页" (Cover) from TOC to resolve "two covers" confusion
   if (pages && pages.length > 0) {
     for (const p of pages) {
       nav += `<li><a href="text/${p.file}">${esc(p.title)}</a></li>`
     }
   }
   for (const c of columns) {
-    const first = c.articles[0]
-    const topHref = first ? `text/${first.id}.xhtml` : ''
-    const topLink = first ? `<a href="${topHref}">${esc(c.name)}</a>` : `<span>${esc(c.name)}</span>`
-    nav += `<li>${topLink}<ol>`
-    for (const a of c.articles) {
-      nav += `<li><a href="text/${a.id}.xhtml">${esc(a.title)}</a></li>`
+    if (c.articles.length === 0) continue
+    const intro = c.articles.find(a => a.isIntro)
+    const others = c.articles.filter(a => !a.isIntro)
+
+    const firstArticle = intro || c.articles[0]
+    const remainingArticles = intro ? others : c.articles.slice(1)
+
+    nav += `<li><a href="text/${firstArticle.id}.xhtml">${esc(c.name)}</a>`
+    if (remainingArticles.length > 0) {
+      nav += `<ol>`
+      for (const a of remainingArticles) {
+        nav += `<li><a href="text/${a.id}.xhtml">${esc(a.title)}</a></li>`
+      }
+      nav += `</ol>`
     }
-    nav += `</ol></li>`
+    nav += `</li>`
   }
   nav += `</ol>\n</nav>\n</body>\n</html>`
   write(path.join(oebpsDir, 'nav.xhtml'), nav)
@@ -169,8 +187,7 @@ function buildOpf(metadata, columns, pages) {
   manifestItems.push(`<item id="nav" href="nav.xhtml" media-type="application/xhtml+xml" properties="nav"/>`)
 
   let spineItems = []
-  spineItems.push(`<itemref idref="cover"/>`)
-  spineItems.push(`<itemref idref="magazine-toc"/>`)
+  // Spine starts with Foreword. Cover is handled by metadata/manifest property to resolve "double cover"
   for (const p of pages) spineItems.push(`<itemref idref="${slugify(p.file.replace(/\.xhtml$/, ''))}"/>`)
   for (const c of columns) {
     for (const a of c.articles) spineItems.push(`<itemref idref="${a.id}"/>`)
