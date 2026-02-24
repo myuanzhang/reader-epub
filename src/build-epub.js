@@ -2,6 +2,7 @@ import fs from 'fs'
 import path from 'path'
 import matter from 'gray-matter'
 import MarkdownIt from 'markdown-it'
+import crypto from 'crypto'
 
 const root = process.cwd()
 const contentDir = path.join(root, 'content')
@@ -48,9 +49,10 @@ function slugify(s) {
   const needAugment = !/^[a-z]/.test(base) || base.length < 4
   if (!needAugment) return base
   const source = base.startsWith('column-') ? s.replace(/^column-/, '') : s
-  const hex = Buffer.from(source, 'utf8').toString('hex').slice(0, 16)
-  if (base && /^[a-z]/.test(base)) return `${base}${hex}`
-  return `p-${hex}`
+  // Use MD5 hash of complete UTF-8 string to ensure uniqueness
+  const hash = crypto.createHash('md5').update(source, 'utf8').digest('hex').slice(0, 16)
+  if (base && /^[a-z]/.test(base)) return `${base}${hash}`
+  return `p-${hash}`
 }
 
 function mdToHtml(md) {
