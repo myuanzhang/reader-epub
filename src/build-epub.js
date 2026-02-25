@@ -57,7 +57,54 @@ function slugify(s) {
 
 function mdToHtml(md) {
   const mdParser = new MarkdownIt({ html: true, xhtmlOut: true, breaks: true, linkify: true })
-  return mdParser.render(md)
+  return decodeImageUrls(mdParser.render(md))
+}
+
+
+
+function decodeImageUrls(html) {
+  // Decode URL-encoded image paths while keeping other content intact
+  return html.replace(
+    /<img([^>]*src=["'])([^"']+)(["'][^>]*)>/gi,
+    (match, prefix, url, suffix) => {
+      try {
+        // Only decode if it looks like a URL-encoded path to images/
+        if (url.includes('%') && url.includes('images/')) {
+          const decoded = decodeURIComponent(url);
+          return '<img' + prefix + decoded + suffix + '>';
+        }
+        return match;
+      } catch (e) {
+        return match;
+      }
+    }
+  );
+}
+
+function extractInlineImages(md, srcDir) {
+  const images = new Set();
+  md.replace(/!\[.*?\]\((.+?\.(png|jpg|jpeg|gif|webp|svg))\)/gi, (match, imgPath) => {
+    const basename = path.basename(imgPath);
+    if (basename) images.add(basename);
+    return match;
+  });
+  return Array.from(images);
+}
+
+function fixImagePaths(md) {
+  return md.replace(
+    /!\[.*?\]\((.+?\.(png|jpg|jpeg|gif|webp|svg))\)/gi,
+    (match, imgPath) => {
+      let basePath = imgPath;
+      if (imgPath.startsWith('/Users/')) {
+        basePath = path.basename(imgPath);
+      } else if (!imgPath.startsWith('/') && !imgPath.startsWith('../')) {
+        basePath = path.basename(imgPath);
+      }
+      if (basePath.startsWith('../images/')) return match;
+      return match.replace(imgPath, '../images/' + basePath);
+    }
+  );
 }
 
 function collectColumns() {
@@ -79,7 +126,7 @@ function collectColumns() {
       const { data, content } = matter(raw)
       const id = slugify(`${name}-${data.title || f}`)
       const isIntro = (f) => f.toLowerCase().startsWith('intro') || f.toLowerCase().startsWith('overview') || /^\d{2}-/.test(f)
-      articles.push({ id, column: name, title: data.title || f.replace(/\.md$/, ''), author: data.author || '', image: data.image || '', md: content, srcDir: dir, isIntro: isIntro(f) })
+      articles.push({ id, column: name, title: data.title || f.replace(/\.md$/, ''), author: data.author || '', image: data.image || '', md: content, srcDir: dir, isIntro: isIntro(f), inlineImages: extractInlineImages(content, dir) })
     }
     columns.push({ name, articles })
   }
@@ -90,7 +137,8 @@ function writeArticleXhtml(a) {
   const titleEl = `<h1 class="article-title">${esc(a.title)}</h1>`
   const authorEl = a.author ? `<div class="article-author">${esc(a.author)}</div>` : ''
   const imageEl = a.image ? `<figure><img class="article-image" src="../images/${path.basename(a.image)}" alt="${esc(a.title)}"/></figure>` : ''
-  const bodyEl = mdToHtml(a.md)
+  const fixedMd = fixImagePaths(a.md);
+  const bodyEl = mdToHtml(fixedMd)
   const html = xhtmlWrap(a.title, `${titleEl}${authorEl}${imageEl}${bodyEl}`)
   write(path.join(textDir, `${a.id}.xhtml`), html)
 }
@@ -184,6 +232,16 @@ function buildOpf(metadata, columns, pages) {
           imgAdded.add(base)
         }
       }
+      // Register inline images in manifest
+      if (a.inlineImages && a.inlineImages.length > 0) {
+        for (const imgBasename of a.inlineImages) {
+          if (!imgAdded.has(imgBasename)) {
+            const imgId = slugify(imgBasename.replace(/\.[^.]+$/, ''))
+            manifestItems.push(`<item id="img-${imgId}" href="images/${imgBasename}" media-type="${imageMimeType(imgBasename)}"/>`)
+            imgAdded.add(imgBasename)
+          }
+        }
+      }
     }
   }
   manifestItems.push(`<item id="nav" href="nav.xhtml" media-type="application/xhtml+xml" properties="nav"/>`)
@@ -206,14 +264,33 @@ function buildContainer() {
 }
 
 function copyImages(metadata, columns) {
+  const copied = new Set();
   if (metadata.coverImage) {
-    fs.copyFileSync(path.join(contentDir, metadata.coverImage), path.join(oebpsDir, 'images', path.basename(metadata.coverImage)))
+    fs.copyFileSync(path.join(contentDir, metadata.coverImage), path.join(oebpsDir, 'images', path.basename(metadata.coverImage)));
+    copied.add(path.basename(metadata.coverImage));
   }
   for (const c of columns) {
     for (const a of c.articles) {
       if (a.image) {
-        const src = a.image.includes('/') ? path.join(contentDir, a.image) : path.join(a.srcDir, a.image)
-        fs.copyFileSync(src, path.join(imgDir, path.basename(a.image)))
+        const src = a.image.includes('/') ? path.join(contentDir, a.image) : path.join(a.srcDir, a.image);
+        const basename = path.basename(a.image);
+        if (!copied.has(basename)) {
+          fs.copyFileSync(src, path.join(imgDir, basename));
+          copied.add(basename);
+        }
+      }
+      if (a.inlineImages && a.inlineImages.length > 0) {
+        for (const imgBasename of a.inlineImages) {
+          if (!copied.has(imgBasename)) {
+            const globalImgPath = path.join(contentDir, 'images', imgBasename);
+            const localImgPath = path.join(a.srcDir, imgBasename);
+            const srcPath = fs.existsSync(globalImgPath) ? globalImgPath : localImgPath;
+            if (fs.existsSync(srcPath)) {
+              fs.copyFileSync(srcPath, path.join(imgDir, imgBasename));
+              copied.add(imgBasename);
+            }
+          }
+        }
       }
     }
   }
