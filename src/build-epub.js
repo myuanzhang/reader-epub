@@ -38,7 +38,7 @@ function xhtmlWrap(title, body, cssHref = 'styles/style.css') {
 }
 
 function buildCss() {
-  const css = `body{font-family: system-ui, -apple-system, 'SF Pro Text','PingFang SC','Microsoft YaHei',sans-serif;line-height:1.8;margin:1rem 1.25rem;word-wrap:break-word}h1,h2,h3{margin:0 0 .75rem 0;page-break-after:avoid}p{margin:.75rem 0;text-indent:0 !important}img{max-width:100%;height:auto;display:block;margin:1rem auto}figure{margin:1rem 0;text-align:center;page-break-inside:avoid}figcaption{color:#666;font-size:.9rem;margin-top:.5rem}.article-title{font-size:1.8rem;font-weight:600;text-align:left;margin-bottom:.5rem;border-left:.25rem solid #0a8f39;padding-left:.5rem}.article-author{font-size:1rem;color:#555;text-align:right;margin:.25rem 0 1rem 0}.article-image{display:block;margin:0 auto 1rem auto}.toc h1{font-size:1.4rem;margin-bottom:.5rem}.toc .column{border-bottom:1px solid #eee;margin:1rem 0;padding-bottom:.5rem}.toc .column-title{font-size:1.1rem;font-weight:600;margin-bottom:.5rem;color:#333}.toc ul{list-style:none;padding-left:1rem;margin:.5rem 0}.toc li{margin:.25rem 0}.toc a{color:#0a6dce;text-decoration:none}.toc a:visited{color:#5d5d8a}`
+  const css = `body{font-family: system-ui, -apple-system, 'SF Pro Text','PingFang SC','Microsoft YaHei',sans-serif;line-height:1.0;margin:1rem 1.25rem;word-wrap:break-word}h1,h2,h3{margin:0 0 .75rem 0;page-break-after:avoid}p{margin:.75rem 0;text-indent:0 !important}img{max-width:100%;height:auto;display:block;margin:1rem auto}figure{margin:1rem 0;text-align:center;page-break-inside:avoid}figcaption{color:#666;font-size:.9rem;margin-top:.5rem}.article-title{font-size:1.8rem;line-height:1.0;font-weight:600;text-align:left;margin-bottom:.5rem;border-left:.25rem solid #0a8f39;padding-left:.5rem}.article-author{font-size:1rem;color:#555;text-align:right;margin:.25rem 0 1rem 0}.article-image{display:block;margin:0 auto 1rem auto}.toc h1{font-size:1.4rem;margin-bottom:.5rem}.toc .column{border-bottom:1px solid #eee;margin:1rem 0;padding-bottom:.5rem}.toc .column-title{font-size:1.1rem;font-weight:600;margin-bottom:.5rem;color:#333}.toc ul{list-style:none;padding-left:1rem;margin:.5rem 0}.toc li{margin:.25rem 0}.toc a{color:#0a6dce;text-decoration:none}.toc a:visited{color:#5d5d8a}`
   write(path.join(cssDir, 'style.css'), css)
 }
 
@@ -107,6 +107,50 @@ function fixImagePaths(md) {
   );
 }
 
+
+// Build article index for internal linking
+function buildArticleIndex(columns) {
+  const index = new Map();
+  for (const column of columns) {
+    for (const article of column.articles) {
+      // Index by title
+      index.set(article.title, article.id);
+      // Index by filename (title.md)
+      index.set(article.title + '.md', article.id);
+      // Also index without special chars for fuzzy matching
+      const simpleTitle = article.title.replace(/[：?!，。、]/g, '').trim();
+      if (simpleTitle !== article.title) {
+        index.set(simpleTitle, article.id);
+        index.set(simpleTitle + '.md', article.id);
+      }
+    }
+  }
+  return index;
+}
+
+// Fix internal article links: ../column/title.md -> article-id.xhtml
+function fixArticleLinks(md, articleIndex) {
+  return md.replace(
+    /\[([^\]]+)\]\((\.\.\/[^\/]+\/([^)]+?\.md))\)/gi,
+    function (match, text, fullPath, filename) {
+      const title = filename.replace(/\.md$/, '').trim();
+      let targetId = articleIndex.get(title);
+
+      if (!targetId) {
+        const simpleTitle = title.replace(/[：?!，。、]/g, '').trim();
+        targetId = articleIndex.get(simpleTitle);
+      }
+
+      if (targetId) {
+        return '[' + text + '](' + targetId + '.xhtml)';
+      }
+
+      console.warn('Article not found: ' + title);
+      return match;
+    }
+  );
+}
+
 function collectColumns() {
   const columnsDir = path.join(contentDir, 'columns')
   const names = fs.readdirSync(columnsDir).filter(n => fs.statSync(path.join(columnsDir, n)).isDirectory())
@@ -133,12 +177,18 @@ function collectColumns() {
   return columns
 }
 
-function writeArticleXhtml(a) {
+function writeArticleXhtml(a, articleIndex) {
   const titleEl = `<h1 class="article-title">${esc(a.title)}</h1>`
   const authorEl = a.author ? `<div class="article-author">${esc(a.author)}</div>` : ''
   const imageEl = a.image ? `<figure><img class="article-image" src="../images/${path.basename(a.image)}" alt="${esc(a.title)}"/></figure>` : ''
+
+  // Fix image paths first
   const fixedMd = fixImagePaths(a.md);
-  const bodyEl = mdToHtml(fixedMd)
+  // Fix internal article links
+  const linkedMd = fixArticleLinks(fixedMd, articleIndex);
+  // Convert to HTML and decode URLs
+  const bodyEl = mdToHtml(linkedMd);
+
   const html = xhtmlWrap(a.title, `${titleEl}${authorEl}${imageEl}${bodyEl}`)
   write(path.join(textDir, `${a.id}.xhtml`), html)
 }
@@ -331,8 +381,13 @@ function main() {
   const forewordPage = buildSimplePage('卷首语', path.join(contentDir, 'foreword.md'))
 
   const columns = collectColumns()
+
+  // Build article index for internal linking
+  const articleIndex = buildArticleIndex(columns);
+  console.log(`📝 Article index built: ${articleIndex.size} entries`);
+
   for (const c of columns) {
-    for (const a of c.articles) writeArticleXhtml(a)
+    for (const a of c.articles) writeArticleXhtml(a, articleIndex)
   }
   buildMagazineToc(columns, [forewordPage])
   buildNav(metadata, columns, [forewordPage])
