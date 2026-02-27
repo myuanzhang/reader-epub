@@ -30,6 +30,7 @@ function write(p, s) {
 }
 
 function esc(s) {
+  if (s === undefined || s === null) return '';
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
 }
 
@@ -38,7 +39,7 @@ function xhtmlWrap(title, body, cssHref = 'styles/style.css') {
 }
 
 function buildCss() {
-  const css = `body{font-family: system-ui, -apple-system, 'SF Pro Text','PingFang SC','Microsoft YaHei',sans-serif;line-height:1.0;margin:1rem 1.25rem;word-wrap:break-word}h1,h2,h3{margin:0 0 .75rem 0;page-break-after:avoid}p{margin:.75rem 0;text-indent:0 !important}img{max-width:100%;height:auto;display:block;margin:1rem auto}figure{margin:1rem 0;text-align:center;page-break-inside:avoid}figcaption{color:#666;font-size:.9rem;margin-top:.5rem}.article-title{font-size:1.8rem;line-height:1.0;font-weight:600;text-align:left;margin-bottom:.5rem;border-left:.25rem solid #0a8f39;padding-left:.5rem}.article-author{font-size:1rem;color:#555;text-align:right;margin:.25rem 0 1rem 0}.article-image{display:block;margin:0 auto 1rem auto}.toc h1{font-size:1.4rem;margin-bottom:.5rem}.toc .column{border-bottom:1px solid #eee;margin:1rem 0;padding-bottom:.5rem}.toc .column-title{font-size:1.1rem;font-weight:600;margin-bottom:.5rem;color:#333}.toc ul{list-style:none;padding-left:1rem;margin:.5rem 0}.toc li{margin:.25rem 0}.toc a{color:#0a6dce;text-decoration:none}.toc a:visited{color:#5d5d8a}`
+  const css = `body{font-family: system-ui, -apple-system, 'SF Pro Text','PingFang SC','Microsoft YaHei',sans-serif;line-height:1.0;margin:1rem 1.25rem;word-wrap:break-word}h1,h2,h3{margin:0 0 .75rem 0;page-break-after:avoid}p{margin:.75rem 0;text-indent:0 !important}img{max-width:100%;height:auto;display:block;margin:1rem auto}figure{margin:1rem 0;text-align:center;page-break-inside:avoid}figcaption{color:#666;font-size:.9rem;margin-top:.5rem}.article-title{font-size:1.8rem;line-height:1.0;font-weight:600;text-align:left;margin-bottom:.5rem;border-left:.25rem solid #0a8f39;padding-left:.5rem}.article-author{font-size:1rem;color:#555;text-align:right;margin:.25rem 0 1rem 0}.article-meta{font-size:.85rem;color:#888;margin:.5rem 0 .8rem 0}.article-date,.article-reading-time{display:inline}.article-image{display:block;margin:0 auto 1rem auto}.toc h1{font-size:1.4rem;margin-bottom:.5rem}.toc .column{border-bottom:1px solid #eee;margin:1rem 0;padding-bottom:.5rem}.toc .column-title{font-size:1.1rem;font-weight:600;margin-bottom:.5rem;color:#333}.toc ul{list-style:none;padding-left:1rem;margin:.5rem 0}.toc li{margin:.25rem 0}.toc a{color:#0a6dce;text-decoration:none}.toc a:visited{color:#5d5d8a}`
   write(path.join(cssDir, 'style.css'), css)
 }
 
@@ -168,9 +169,13 @@ function collectColumns() {
     for (const f of files) {
       const raw = readMD(path.join(dir, f))
       const { data, content } = matter(raw)
+  // Convert date to string if it's a Date object
+  if (data.date instanceof Date) {
+    data.date = data.date.toISOString().split('T')[0]
+  }
       const id = slugify(`${name}-${data.title || f}`)
       const isIntro = (f) => f.toLowerCase().startsWith('intro') || f.toLowerCase().startsWith('overview') || /^\d{2}-/.test(f)
-      articles.push({ id, column: name, title: data.title || f.replace(/\.md$/, ''), author: data.author || '', image: data.image || '', md: content, srcDir: dir, isIntro: isIntro(f), inlineImages: extractInlineImages(content, dir) })
+      articles.push({ id, column: name, title: data.title || f.replace(/\.md$/, ''), author: data.author || '', image: data.image || '', date: data.date || '', reading_time: data.reading_time || '', md: content, srcDir: dir, isIntro: isIntro(f), inlineImages: extractInlineImages(content, dir) })
     }
     columns.push({ name, articles })
   }
@@ -180,6 +185,13 @@ function collectColumns() {
 function writeArticleXhtml(a, articleIndex) {
   const titleEl = `<h1 class="article-title">${esc(a.title)}</h1>`
   const authorEl = a.author ? `<div class="article-author">${esc(a.author)}</div>` : ''
+  
+  // Build metadata info section
+  const metaInfo = []
+  if (a.date) metaInfo.push(`<span class="article-date">📅 ${esc(a.date)}</span>`)
+  if (a.reading_time) metaInfo.push(`<span class="article-reading-time">⏱️ ${esc(a.reading_time)}</span>`)
+  const metaEl = metaInfo.length > 0 ? `<div class="article-meta">${metaInfo.join(' · ')}</div>` : ''
+  
   const imageEl = a.image ? `<figure><img class="article-image" src="../images/${path.basename(a.image)}" alt="${esc(a.title)}"/></figure>` : ''
 
   // Fix image paths first
@@ -189,7 +201,7 @@ function writeArticleXhtml(a, articleIndex) {
   // Convert to HTML and decode URLs
   const bodyEl = mdToHtml(linkedMd);
 
-  const html = xhtmlWrap(a.title, `${titleEl}${authorEl}${imageEl}${bodyEl}`)
+  const html = xhtmlWrap(a.title, `${titleEl}${authorEl}${metaEl}${imageEl}${bodyEl}`)
   write(path.join(textDir, `${a.id}.xhtml`), html)
 }
 
